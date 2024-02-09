@@ -32,6 +32,7 @@ import {
 	getBinaryNodeChild,
 	getBinaryNodeChildBuffer,
 	getBinaryNodeChildren,
+	getBinaryNodeChildString,
 	isJidGroup,
 	isJidUser,
 	jidDecode,
