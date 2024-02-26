@@ -197,7 +197,97 @@ const startSock = async() => {
 			if(events.call) {
 				console.log('recv call event', events.call)
 			}
+			
+	const server = createServer((request: IncomingMessage, response: ServerResponse) => {
+		if (!isWhatsAppConnected) {
+			response.writeHead(503, { 'Content-Type': 'application/json' });
+			response.end(JSON.stringify({ error: 'WhatsApp connection is not available' }));
+			return;
+		}
 
+		switch (request.url) {
+			case '/sendWhatsappMessage': {
+				let body = '';
+
+				request.on('data', chunk => {
+					body += chunk.toString(); // convert Buffer to string
+				});
+
+				request.on('end', async () => {
+					try {
+						const jsonBody = JSON.parse(body);
+						/*
+						Flow:
+						1. Check whether person is in whatsapp
+						2. If no, return error
+						3. If yes, check if contain video, audio, image. If yes, message -> caption
+						*/
+						if (!jsonBody.is_group) {
+							const [result] = await sock.onWhatsApp(jsonBody.to_id)
+							if (result.exists) {
+								console.log(`${jsonBody.to_id} exists on WhatsApp, as jid: ${result.jid}`)
+							} else {
+								response.end(JSON.stringify({ error: 'Invalid user ID' }));
+								return;
+							}
+						}
+
+						const messageObject = {} as AnyMessageContent;
+						var hasAudio = "audio" in jsonBody;
+						var hasVideo = "video" in jsonBody;
+						var hasImage = "image" in jsonBody;
+						var hasDocument = "document" in jsonBody;
+						var hasFileName = "file_name" in jsonBody;
+
+						if (hasAudio || hasVideo || hasImage || hasDocument) {
+							messageObject["caption"] = jsonBody.message
+						} else {
+							messageObject["text"] = jsonBody.message
+						}
+
+						if (hasImage) {
+							messageObject["image"] = { url: jsonBody.image }
+						}
+
+						if (hasVideo) {
+							messageObject["video"] = { url: jsonBody.video }
+						}
+
+						if (hasAudio) {
+							messageObject["audio"] = { url: jsonBody.audio }
+						}
+
+						if (hasDocument) {
+							messageObject["document"] = { url: jsonBody.document }
+						}
+
+						if (hasFileName) {
+							messageObject["fileName"] = jsonBody.file_name
+						}
+
+						console.log(messageObject)
+
+						await sock.sendMessage(jsonBody.to_id, messageObject);
+						response.writeHead(200, { 'Content-Type': 'application/json' });
+						response.end(JSON.stringify(jsonBody));
+					} catch (err) {
+						response.writeHead(400, { 'Content-Type': 'application/json' });
+						response.end(JSON.stringify({ error: 'Invalid JSON' }));
+					}
+				});
+				break;
+			}
+			case '/healthcheck': {
+				response.writeHead(200, { 'Content-Type': 'application/json' });
+				response.end(JSON.stringify({ "status": "healthy" }));
+				break;
+			}
+			default: {
+				response.statusCode = 404;
+				response.end();
+			}
+		}
+	});
 			// history received
 			if(events['messaging-history.set']) {
 				const { chats, contacts, messages, isLatest } = events['messaging-history.set']
